@@ -35,6 +35,7 @@ const MOOD_TAGS = [
   "Focado",
   "Grato",
   "Motivado",
+  "Raiva",
 ];
 const COLOR_PALETTES = {
   butter: { rgb: "255 230 109" },
