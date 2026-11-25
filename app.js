@@ -1,4 +1,5 @@
 const STORAGE_KEY = "habitPulseData";
+const COLOR_THEME_STORAGE_KEY = "habitPulseColorTheme";
 const INVALID_BACKUP_MESSAGE =
   "Arquivo inválido. Selecione um backup gerado pelo HabitPulse.";
 const moodForm = document.querySelector("#mood-form");
@@ -15,6 +16,10 @@ const habitInput = document.querySelector("#habit-name");
 const habitList = document.querySelector("#habit-list");
 const emptyHabits = document.querySelector("#empty-habits");
 const habitCount = document.querySelector("#habit-count");
+const habitCompletionBanner = document.querySelector(
+  "#habit-completion-banner",
+);
+const colorThemeSelect = document.querySelector("#color-theme");
 const exportBackupButton = document.querySelector("#export-backup");
 const importBackupButton = document.querySelector("#import-backup");
 const backupFileInput = document.querySelector("#backup-file");
@@ -31,21 +36,49 @@ const MOOD_TAGS = [
   "Grato",
   "Motivado",
 ];
-
+const COLOR_PALETTES = {
+  butter: { rgb: "255 230 109" },
+  mint: { rgb: "122 229 130" },
+  coral: { rgb: "255 138 122" },
+  sky: { rgb: "123 223 242" },
+};
+const LEGACY_COLOR_THEMES = {
+  purple: "butter",
+  emerald: "mint",
+  ocean: "sky",
+};
+function applyColorTheme(themeName) {
+  const isValidTheme = Object.prototype.hasOwnProperty.call(
+    COLOR_PALETTES,
+    themeName,
+  );
+  const isLegacyTheme = Object.prototype.hasOwnProperty.call(
+    LEGACY_COLOR_THEMES,
+    themeName,
+  );
+  const selectedTheme = isValidTheme
+    ? themeName
+    : isLegacyTheme
+      ? LEGACY_COLOR_THEMES[themeName]
+      : "butter";
+  const palette = COLOR_PALETTES[selectedTheme];
+  document.documentElement.style.setProperty("--accent-rgb", palette.rgb);
+  colorThemeSelect.value = selectedTheme;
+  return palette;
+}
+applyColorTheme(localStorage.getItem(COLOR_THEME_STORAGE_KEY) || "butter");
 function formatDateKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
-
 function formatTime(date) {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
   const seconds = String(date.getSeconds()).padStart(2, "0");
   return `${hours}:${minutes}:${seconds}`;
 }
-
 function isValidDateKey(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
@@ -56,7 +89,6 @@ function isValidDateKey(value) {
     date.getDate() === day
   );
 }
-
 function normalizeMoodRecord(mood) {
   if (
     !mood ||
@@ -68,11 +100,9 @@ function normalizeMoodRecord(mood) {
   ) {
     return null;
   }
-
   const tags = Array.isArray(mood.tags)
     ? [...new Set(mood.tags.filter((tag) => MOOD_TAGS.includes(tag)))]
     : [];
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(mood.date)) {
     if (!isValidDateKey(mood.date)) return null;
     return {
@@ -83,7 +113,6 @@ function normalizeMoodRecord(mood) {
       time: /^\d{2}:\d{2}:\d{2}$/.test(mood.time) ? mood.time : "00:00:00",
     };
   }
-
   const timestamp = new Date(mood.date);
   if (Number.isNaN(timestamp.getTime())) return null;
   return {
@@ -94,7 +123,6 @@ function normalizeMoodRecord(mood) {
     time: formatTime(timestamp),
   };
 }
-
 function normalizeHabitRecord(habit) {
   if (
     !habit ||
@@ -103,61 +131,55 @@ function normalizeHabitRecord(habit) {
   ) {
     return null;
   }
-
   const today = formatDateKey(new Date());
   const completedDates = Array.isArray(habit.completedDates)
-    ? [...new Set(
-        habit.completedDates.filter(
-          (date) => typeof date === "string" && isValidDateKey(date),
+    ? [
+        ...new Set(
+          habit.completedDates.filter(
+            (date) => typeof date === "string" && isValidDateKey(date),
+          ),
         ),
-      )]
+      ]
     : habit.completed
       ? [today]
       : [];
-
   if (
     Array.isArray(habit.completedDates) &&
     completedDates.length !== habit.completedDates.length
   ) {
-    console.error(`Datas de conclusão inválidas no hábito "${habit.name}" foram ignoradas.`);
+    console.error(
+      `Datas de conclusão inválidas no hábito "${habit.name}" foram ignoradas.`,
+    );
   }
-
   return {
     name: habit.name,
     completed: completedDates.includes(today),
     completedDates,
   };
 }
-
 function getLastSevenDays(referenceDate = new Date()) {
   const today = new Date(
     referenceDate.getFullYear(),
     referenceDate.getMonth(),
     referenceDate.getDate(),
   );
-
   return Array.from({ length: 7 }, (_, index) => {
     const date = new Date(
       today.getFullYear(),
       today.getMonth(),
       today.getDate() - 6 + index,
     );
-    const weekday = new Intl.DateTimeFormat("pt-BR", {
-      weekday: "short",
-    })
+    const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "short" })
       .format(date)
       .replace(/\.$/, "");
-
     return {
       key: formatDateKey(date),
       label: `${weekday[0].toLocaleUpperCase("pt-BR")}${weekday.slice(1)}`,
     };
   });
 }
-
 function getMoodChartData(records, referenceDate = new Date()) {
   const days = getLastSevenDays(referenceDate);
-
   return {
     labels: days.map((day) => day.label),
     values: days.map((day) => {
@@ -170,27 +192,25 @@ function getMoodChartData(records, referenceDate = new Date()) {
     }),
   };
 }
-
 function renderWeeklyInsights() {
   const dayKeys = new Set(getLastSevenDays().map((day) => day.key));
   const recentMoods = moods.filter((mood) => dayKeys.has(mood.date));
   const tagCounts = new Map();
-
   recentMoods.forEach((mood) => {
     mood.tags.forEach((tag) => {
       tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
     });
   });
-
   const mostSelectedTag = [...tagCounts.entries()].sort(
     (a, b) => b[1] - a[1] || MOOD_TAGS.indexOf(a[0]) - MOOD_TAGS.indexOf(b[0]),
   )[0];
   topTagInsight.textContent = mostSelectedTag
     ? `${mostSelectedTag[0]} (${mostSelectedTag[1]} ${mostSelectedTag[1] === 1 ? "seleção" : "seleções"})`
     : "Ainda não há tags registradas nesta semana. Adicione uma tag ao seu próximo check-in.";
-
   const completedDayKeys = new Set(
-    habits.flatMap((habit) => habit.completedDates).filter((date) => dayKeys.has(date)),
+    habits
+      .flatMap((habit) => habit.completedDates)
+      .filter((date) => dayKeys.has(date)),
   );
   const moodsByDay = new Map();
   recentMoods.forEach((mood) => {
@@ -198,7 +218,6 @@ function renderWeeklyInsights() {
     dailyScores.push(mood.score);
     moodsByDay.set(mood.date, dailyScores);
   });
-
   const dayAverages = [...moodsByDay.entries()].map(([date, scores]) => ({
     completedHabits: completedDayKeys.has(date),
     average: scores.reduce((total, score) => total + score, 0) / scores.length,
@@ -209,13 +228,11 @@ function renderWeeklyInsights() {
   const averagesWithoutHabits = dayAverages
     .filter((day) => !day.completedHabits)
     .map((day) => day.average);
-
   if (averagesWithHabits.length === 0 || averagesWithoutHabits.length === 0) {
     habitMoodInsight.textContent =
       "Registre seu humor e conclua hábitos em mais dias para comparar os padrões.";
     return;
   }
-
   const mean = (values) =>
     values.reduce((total, value) => total + value, 0) / values.length;
   const withHabits = mean(averagesWithHabits);
@@ -226,54 +243,47 @@ function renderWeeklyInsights() {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
     });
-
   if (Math.abs(difference) < 0.1) {
-    habitMoodInsight.textContent =
-      `Sua média de humor foi semelhante: ${formatScore(withHabits)} com hábitos concluídos e ${formatScore(withoutHabits)} sem.`;
+    habitMoodInsight.textContent = `Sua média de humor foi semelhante: ${formatScore(withHabits)} com hábitos concluídos e ${formatScore(withoutHabits)} sem.`;
   } else if (difference > 0) {
-    habitMoodInsight.textContent =
-      `A média foi maior nos dias com hábitos concluídos: ${formatScore(withHabits)} vs. ${formatScore(withoutHabits)}.`;
+    habitMoodInsight.textContent = `A média foi maior nos dias com hábitos concluídos: ${formatScore(withHabits)} vs. ${formatScore(withoutHabits)}.`;
   } else {
-    habitMoodInsight.textContent =
-      `A média foi maior nos dias sem hábitos concluídos: ${formatScore(withoutHabits)} vs. ${formatScore(withHabits)}.`;
+    habitMoodInsight.textContent = `A média foi maior nos dias sem hábitos concluídos: ${formatScore(withoutHabits)} vs. ${formatScore(withHabits)}.`;
   }
 }
-
 function loadState() {
   const storedState = localStorage.getItem(STORAGE_KEY);
   if (storedState === null) {
     return { habits: [], moods: [] };
   }
-
   let state;
   try {
     state = JSON.parse(storedState);
   } catch (error) {
-    console.error("Não foi possível interpretar os dados salvos do HabitPulse.", error);
+    console.error(
+      "Não foi possível interpretar os dados salvos do HabitPulse.",
+      error,
+    );
     return { habits: [], moods: [] };
   }
-
   if (!state || !Array.isArray(state.habits) || !Array.isArray(state.moods)) {
     console.error("Os dados salvos do HabitPulse têm um formato inválido.");
     return { habits: [], moods: [] };
   }
-
   const habits = state.habits.map(normalizeHabitRecord).filter(Boolean);
   const moods = state.moods.map(normalizeMoodRecord).filter(Boolean);
-
-  if (habits.length !== state.habits.length || moods.length !== state.moods.length) {
+  if (
+    habits.length !== state.habits.length ||
+    moods.length !== state.moods.length
+  ) {
     console.error("Alguns dados inválidos do HabitPulse foram ignorados.");
   }
-
   return { habits, moods };
 }
-
 let { habits, moods } = loadState();
-
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ habits, moods }));
 }
-
 function validateBackup(data) {
   if (
     !data ||
@@ -282,9 +292,10 @@ function validateBackup(data) {
     !Array.isArray(data.habits) ||
     !Array.isArray(data.moods)
   ) {
-    throw new Error("O arquivo não contém uma lista válida de hábitos e check-ins.");
+    throw new Error(
+      "O arquivo não contém uma lista válida de hábitos e check-ins.",
+    );
   }
-
   const importedHabits = data.habits.map((habit, index) => {
     if (
       !habit ||
@@ -299,10 +310,8 @@ function validateBackup(data) {
     ) {
       throw new Error(`O hábito ${index + 1} tem dados inválidos.`);
     }
-
     return normalizeHabitRecord(habit);
   });
-
   const importedMoods = data.moods.map((mood, index) => {
     if (
       !mood ||
@@ -318,24 +327,20 @@ function validateBackup(data) {
     ) {
       throw new Error(`O check-in ${index + 1} tem dados inválidos.`);
     }
-
     const normalizedMood = normalizeMoodRecord(mood);
     if (!normalizedMood) {
       throw new Error(`A data do check-in ${index + 1} é inválida.`);
     }
     return normalizedMood;
   });
-
   return { habits: importedHabits, moods: importedMoods };
 }
-
 function showBackupFeedback(message, isError = false) {
   backupFeedback.textContent = message;
-  backupFeedback.classList.toggle("text-rose-300", isError);
-  backupFeedback.classList.toggle("text-mint", !isError);
+  backupFeedback.classList.toggle("bg-coral", isError);
+  backupFeedback.classList.toggle("bg-mint", !isError);
   backupFeedback.classList.remove("hidden");
 }
-
 function exportBackup() {
   const backup = JSON.stringify({ habits, moods }, null, 2);
   const blob = new Blob([backup], { type: "application/json" });
@@ -349,12 +354,10 @@ function exportBackup() {
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-
 async function importBackup(file) {
   if (!file.name.toLowerCase().endsWith(".json")) {
     throw new Error("Selecione um arquivo com extensão .json.");
   }
-
   const backupText = await file.text();
   let parsedBackup;
   try {
@@ -362,7 +365,6 @@ async function importBackup(file) {
   } catch (error) {
     throw new Error(INVALID_BACKUP_MESSAGE, { cause: error });
   }
-
   let importedState;
   try {
     importedState = validateBackup(parsedBackup);
@@ -380,13 +382,11 @@ async function importBackup(file) {
   renderWeeklyInsights();
   showBackupFeedback("Backup importado com sucesso.");
 }
-
 exportBackupButton.addEventListener("click", exportBackup);
 importBackupButton.addEventListener("click", () => backupFileInput.click());
 backupFileInput.addEventListener("change", async () => {
   const [file] = backupFileInput.files;
   if (!file) return;
-
   try {
     await importBackup(file);
   } catch (error) {
@@ -396,17 +396,17 @@ backupFileInput.addEventListener("change", async () => {
     backupFileInput.value = "";
   }
 });
-
 function showMoodFeedback(message, isError = false) {
   moodFeedback.textContent = message;
-  moodFeedback.classList.toggle("text-rose-300", isError);
-  moodFeedback.classList.toggle("text-mint", !isError);
+  moodFeedback.classList.toggle("bg-coral", isError);
+  moodFeedback.classList.toggle("bg-mint", !isError);
   moodFeedback.classList.remove("hidden");
   window.setTimeout(() => moodFeedback.classList.add("hidden"), 3500);
 }
-
 const initialMoodChartData = getMoodChartData(moods);
-
+const initialAccentRgb = COLOR_PALETTES[colorThemeSelect.value].rgb
+  .split(" ")
+  .join(", ");
 const moodChart = new Chart(document.querySelector("#mood-chart"), {
   type: "line",
   data: {
@@ -416,11 +416,11 @@ const moodChart = new Chart(document.querySelector("#mood-chart"), {
         label: "Humor",
         data: initialMoodChartData.values,
         spanGaps: true,
-        borderColor: "#8b7cff",
-        backgroundColor: "rgba(139,124,255,.12)",
-        pointBackgroundColor: "#55e6bd",
-        pointBorderColor: "#121a2d",
-        pointBorderWidth: 3,
+        borderColor: "#111111",
+        backgroundColor: `rgba(${initialAccentRgb}, 0.12)`,
+        pointBackgroundColor: "#FFE66D",
+        pointBorderColor: "#111111",
+        pointBorderWidth: 2,
         pointRadius: 5,
         pointHoverRadius: 7,
         borderWidth: 3,
@@ -434,9 +434,11 @@ const moodChart = new Chart(document.querySelector("#mood-chart"), {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: "#121a2d",
-        titleColor: "#fff",
-        bodyColor: "#cbd5e1",
+        backgroundColor: "#FFFFFF",
+        titleColor: "#111111",
+        bodyColor: "#111111",
+        borderColor: "#111111",
+        borderWidth: 2,
         padding: 12,
         displayColors: false,
       },
@@ -445,19 +447,18 @@ const moodChart = new Chart(document.querySelector("#mood-chart"), {
       y: {
         min: 1,
         max: 5,
-        ticks: { stepSize: 1, color: "#64748b", padding: 10 },
-        grid: { color: "rgba(255,255,255,.06)" },
-        border: { display: false },
+        ticks: { stepSize: 1, color: "#111111", padding: 10 },
+        grid: { color: "rgba(17,17,17,.12)" },
+        border: { color: "#111111" },
       },
       x: {
-        ticks: { color: "#64748b", padding: 8 },
+        ticks: { color: "#111111", padding: 8 },
         grid: { display: false },
-        border: { display: false },
+        border: { color: "#111111" },
       },
     },
   },
 });
-
 moodForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const score = Number(new FormData(moodForm).get("mood"));
@@ -466,12 +467,10 @@ moodForm.addEventListener("submit", (event) => {
   const now = new Date();
   const date = formatDateKey(now);
   const dailyRecordCount = moods.filter((mood) => mood.date === date).length;
-
   if (dailyRecordCount >= 3) {
     showMoodFeedback("Você já registrou o humor 3 vezes hoje.", true);
     return;
   }
-
   moods.push({ score, note, tags, date, time: formatTime(now) });
   updateMoodChart(now);
   renderMoodHistory();
@@ -484,32 +483,28 @@ moodForm.addEventListener("submit", (event) => {
   );
   moodForm.reset();
 });
-
 function updateMoodChart(referenceDate = new Date()) {
   const chartData = getMoodChartData(moods, referenceDate);
   moodChart.data.labels = chartData.labels;
   moodChart.data.datasets[0].data = chartData.values;
   moodChart.update();
 }
-
 function formatMoodDateTime(mood) {
   const [year, month, day] = mood.date.split("-").map(Number);
   const date = new Date(year, month - 1, day);
   const formattedDate = new Intl.DateTimeFormat("pt-BR").format(date);
   return `${formattedDate} às ${mood.time.slice(0, 5)}`;
 }
-
 function createMoodEditForm(mood) {
   const form = document.createElement("form");
-  form.className = "space-y-4 rounded-xl border border-violet/20 bg-ink/40 p-4";
-
+  form.className =
+    "space-y-4 rounded-xl border-2 border-charcoal bg-white p-4 shadow-[2px_2px_0px_0px_#111111]";
   const fieldset = document.createElement("fieldset");
   const legend = document.createElement("legend");
-  legend.className = "mb-2 text-xs font-medium text-slate-300";
+  legend.className = "mb-2 text-xs font-medium text-charcoal";
   legend.textContent = "Como você estava se sentindo?";
   const scoreOptions = document.createElement("div");
   scoreOptions.className = "flex flex-wrap gap-2";
-
   moodEmojis.forEach((emoji, index) => {
     const score = index + 1;
     const label = document.createElement("label");
@@ -523,21 +518,18 @@ function createMoodEditForm(mood) {
     input.required = score === 1;
     const option = document.createElement("span");
     option.className =
-      "flex items-center gap-1 rounded-lg border border-white/10 px-3 py-2 text-sm transition peer-checked:border-violet peer-checked:bg-violet/15";
+      "flex items-center gap-1 rounded-lg border-2 border-charcoal bg-white px-3 py-2 text-sm shadow-[2px_2px_0px_0px_#111111] transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none peer-checked:bg-accent";
     option.append(emoji, document.createTextNode(` ${score}`));
     label.append(input, option);
     scoreOptions.append(label);
   });
-
   fieldset.append(legend, scoreOptions);
-
   const tagsFieldset = document.createElement("fieldset");
   const tagsLegend = document.createElement("legend");
-  tagsLegend.className = "mb-2 text-xs font-medium text-slate-300";
+  tagsLegend.className = "mb-2 text-xs font-medium text-charcoal";
   tagsLegend.textContent = "Tags de sentimento";
   const tagOptions = document.createElement("div");
   tagOptions.className = "flex flex-wrap gap-2";
-
   MOOD_TAGS.forEach((tag) => {
     const label = document.createElement("label");
     label.className = "cursor-pointer";
@@ -549,42 +541,37 @@ function createMoodEditForm(mood) {
     input.checked = mood.tags.includes(tag);
     const badge = document.createElement("span");
     badge.className =
-      "inline-flex rounded-full border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs text-slate-400 transition hover:border-violet/50 peer-checked:border-violet peer-checked:bg-violet/15 peer-checked:text-violet";
+      "inline-flex rounded-lg border-2 border-charcoal bg-white px-3 py-1.5 text-xs text-charcoal shadow-[2px_2px_0px_0px_#111111] transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none peer-checked:bg-coral";
     badge.textContent = tag;
     label.append(input, badge);
     tagOptions.append(label);
   });
-
   tagsFieldset.append(tagsLegend, tagOptions);
-
   const noteLabel = document.createElement("label");
-  noteLabel.className = "block text-xs font-medium text-slate-300";
+  noteLabel.className = "block text-xs font-medium text-charcoal";
   noteLabel.textContent = "Anotação (opcional)";
   const noteInput = document.createElement("textarea");
   noteInput.className =
-    "mt-2 w-full resize-none rounded-xl border border-white/10 bg-ink/70 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-violet/60 focus:ring-2 focus:ring-violet/10";
+    "mt-2 w-full resize-none rounded-lg border-2 border-charcoal bg-white px-3 py-2 text-sm text-charcoal outline-none placeholder:text-charcoal/60 focus:ring-2 focus:ring-accent";
   noteInput.rows = 2;
   noteInput.maxLength = 280;
   noteInput.value = mood.note;
   noteLabel.append(noteInput);
-
   const actions = document.createElement("div");
   actions.className = "flex justify-end gap-2";
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
   cancelButton.className =
-    "rounded-lg px-3 py-2 text-xs font-medium text-slate-400 transition hover:bg-white/5 hover:text-slate-200";
+    "rounded-lg border-2 border-charcoal bg-white px-3 py-2 font-display text-xs font-bold text-charcoal shadow-[2px_2px_0px_0px_#111111] transition-all hover:bg-cream active:translate-x-[2px] active:translate-y-[2px] active:shadow-none";
   cancelButton.textContent = "Cancelar";
   cancelButton.addEventListener("click", renderMoodHistory);
-
   const saveButton = document.createElement("button");
   saveButton.type = "submit";
   saveButton.className =
-    "rounded-lg bg-violet px-3 py-2 text-xs font-semibold text-white transition hover:bg-violet-500";
+    "rounded-lg border-2 border-charcoal bg-accent px-3 py-2 font-display text-xs font-bold text-charcoal shadow-[2px_2px_0px_0px_#111111] transition-all hover:bg-accent/90 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none";
   saveButton.textContent = "Salvar alterações";
   actions.append(cancelButton, saveButton);
   form.append(fieldset, tagsFieldset, noteLabel, actions);
-
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const score = Number(new FormData(form).get("edited-mood"));
@@ -592,7 +579,6 @@ function createMoodEditForm(mood) {
       showMoodFeedback("Selecione uma nota entre 1 e 5.", true);
       return;
     }
-
     mood.score = score;
     mood.note = noteInput.value.trim();
     mood.tags = new FormData(form).getAll("edited-tags");
@@ -602,35 +588,30 @@ function createMoodEditForm(mood) {
     saveState();
     showMoodFeedback("Check-in atualizado.");
   });
-
   return form;
 }
-
 function createMoodHistoryItem(mood) {
   const item = document.createElement("li");
   item.className =
-    "rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4";
-
+    "rounded-xl border-2 border-charcoal bg-white p-4 shadow-[2px_2px_0px_0px_#111111]";
   const content = document.createElement("div");
   content.className = "flex items-start gap-3";
   const emoji = document.createElement("span");
   emoji.className =
-    "grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-violet/10 text-xl";
+    "grid h-10 w-10 shrink-0 place-items-center rounded-lg border-2 border-charcoal bg-sky text-xl";
   emoji.textContent = moodEmojis[mood.score - 1];
-
   const details = document.createElement("div");
   details.className = "min-w-0 flex-1";
   const heading = document.createElement("p");
-  heading.className = "text-sm font-semibold text-slate-200";
+  heading.className = "font-display text-sm font-bold text-charcoal";
   heading.textContent = `Humor ${mood.score}/5`;
   const timestamp = document.createElement("p");
-  timestamp.className = "mt-1 text-xs text-slate-500";
+  timestamp.className = "mt-1 text-xs text-charcoal";
   timestamp.textContent = formatMoodDateTime(mood);
   details.append(heading, timestamp);
-
   if (mood.note) {
     const note = document.createElement("p");
-    note.className = "mt-2 break-words text-sm text-slate-300";
+    note.className = "mt-2 break-words text-sm text-charcoal";
     note.textContent = mood.note;
     details.append(note);
   }
@@ -640,20 +621,19 @@ function createMoodHistoryItem(mood) {
     mood.tags.forEach((tag) => {
       const badge = document.createElement("span");
       badge.className =
-        "rounded-full border border-violet/20 bg-violet/10 px-2.5 py-1 text-[11px] text-violet";
+        "rounded-lg border-2 border-charcoal bg-coral px-2.5 py-1 text-[11px] text-charcoal";
       badge.textContent = tag;
       tags.append(badge);
     });
     details.append(tags);
   }
   content.append(emoji, details);
-
   const actions = document.createElement("div");
   actions.className = "mt-3 flex justify-end gap-2";
   const editButton = document.createElement("button");
   editButton.type = "button";
   editButton.className =
-    "rounded-lg px-3 py-2 text-xs font-medium text-violet transition hover:bg-violet/10 focus:outline-none focus:ring-2 focus:ring-violet";
+    "rounded-lg border-2 border-charcoal bg-white px-3 py-2 font-display text-xs font-bold text-charcoal shadow-[2px_2px_0px_0px_#111111] transition-all hover:bg-sky active:translate-x-[2px] active:translate-y-[2px] active:shadow-none focus:outline-none focus:ring-2 focus:ring-accent";
   editButton.textContent = "Editar";
   editButton.setAttribute(
     "aria-label",
@@ -662,11 +642,10 @@ function createMoodHistoryItem(mood) {
   editButton.addEventListener("click", () => {
     item.replaceChildren(createMoodEditForm(mood));
   });
-
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.className =
-    "rounded-lg px-3 py-2 text-xs font-medium text-rose-300 transition hover:bg-rose-500/10 focus:outline-none focus:ring-2 focus:ring-rose-400";
+    "rounded-lg border-2 border-charcoal bg-coral px-3 py-2 font-display text-xs font-bold text-charcoal shadow-[2px_2px_0px_0px_#111111] transition-all hover:brightness-95 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none focus:outline-none focus:ring-2 focus:ring-coral";
   deleteButton.textContent = "Excluir";
   deleteButton.setAttribute(
     "aria-label",
@@ -679,12 +658,10 @@ function createMoodHistoryItem(mood) {
     renderWeeklyInsights();
     saveState();
   });
-
   actions.append(editButton, deleteButton);
   item.append(content, actions);
   return item;
 }
-
 function renderMoodHistory() {
   const selectedTag = moodTagFilter.value;
   const selectedScore = moodScoreFilter.value;
@@ -702,7 +679,6 @@ function renderMoodHistory() {
         b.index - a.index,
     )
     .map(({ mood }) => createMoodHistoryItem(mood));
-
   moodHistory.replaceChildren(...records);
   emptyMoods.classList.toggle("hidden", moods.length > 0);
   emptyMoodFilter.classList.toggle(
@@ -710,33 +686,37 @@ function renderMoodHistory() {
     moods.length === 0 || records.length > 0,
   );
 }
-
 function updateHabitCount() {
-  habitCount.textContent = `${habits.filter((habit) => habit.completed).length}/${habits.length}`;
+  const completedCount = habits.filter((habit) => habit.completed).length;
+  habitCount.textContent = `${completedCount}/${habits.length}`;
   emptyHabits.classList.toggle("hidden", habits.length > 0);
+  habitCompletionBanner.classList.toggle(
+    "hidden",
+    habits.length === 0 || completedCount !== habits.length,
+  );
 }
-
 function createHabitElement(habit) {
   const item = document.createElement("li");
   item.className =
-    "group flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-3 transition hover:border-white/15";
+    "group flex items-center gap-3 rounded-xl border-2 border-charcoal bg-white px-4 py-3 shadow-[2px_2px_0px_0px_#111111] transition-all";
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.checked = habit.completed;
-  checkbox.className = "h-5 w-5 shrink-0 cursor-pointer accent-emerald-400";
+  checkbox.className =
+    "h-5 w-5 shrink-0 cursor-pointer accent-mint transition-transform duration-300 hover:scale-110 active:scale-95";
   checkbox.setAttribute("aria-label", `Concluir hábito: ${habit.name}`);
   const label = document.createElement("span");
-  label.className = "min-w-0 flex-1 break-words text-sm text-slate-200";
+  label.className =
+    "min-w-0 flex-1 break-words rounded px-1 text-sm text-charcoal transition-colors";
   label.textContent = habit.name;
-  label.classList.toggle("text-slate-500", habit.completed);
+  label.classList.toggle("bg-mint", habit.completed);
   label.classList.toggle("line-through", habit.completed);
   const removeButton = document.createElement("button");
   removeButton.type = "button";
   removeButton.className =
-    "rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-400";
+    "rounded-lg border-2 border-charcoal bg-coral px-3 py-2 font-display text-xs font-bold text-charcoal shadow-[2px_2px_0px_0px_#111111] transition-all hover:brightness-95 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none focus:outline-none focus:ring-2 focus:ring-coral";
   removeButton.textContent = "Excluir";
   removeButton.setAttribute("aria-label", `Excluir hábito: ${habit.name}`);
-
   checkbox.addEventListener("change", () => {
     habit.completed = checkbox.checked;
     const today = formatDateKey(new Date());
@@ -745,9 +725,11 @@ function createHabitElement(habit) {
         habit.completedDates.push(today);
       }
     } else {
-      habit.completedDates = habit.completedDates.filter((date) => date !== today);
+      habit.completedDates = habit.completedDates.filter(
+        (date) => date !== today,
+      );
     }
-    label.classList.toggle("text-slate-500", habit.completed);
+    label.classList.toggle("bg-mint", habit.completed);
     label.classList.toggle("line-through", habit.completed);
     updateHabitCount();
     renderWeeklyInsights();
@@ -760,21 +742,17 @@ function createHabitElement(habit) {
     renderWeeklyInsights();
     saveState();
   });
-
   item.append(checkbox, label, removeButton);
   return item;
 }
-
 function renderHabits() {
   habitList.replaceChildren(...habits.map(createHabitElement));
   updateHabitCount();
 }
-
 habitForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const name = habitInput.value.trim();
   if (!name) return;
-
   const habit = { name, completed: false, completedDates: [] };
   habits.push(habit);
   habitList.append(createHabitElement(habit));
@@ -783,7 +761,14 @@ habitForm.addEventListener("submit", (event) => {
   updateHabitCount();
   saveState();
 });
-
+colorThemeSelect.addEventListener("change", () => {
+  const palette = applyColorTheme(colorThemeSelect.value);
+  const accentRgb = palette.rgb.split(" ").join(", ");
+  const moodDataset = moodChart.data.datasets[0];
+  moodDataset.backgroundColor = `rgba(${accentRgb}, 0.12)`;
+  moodChart.update();
+  localStorage.setItem(COLOR_THEME_STORAGE_KEY, colorThemeSelect.value);
+});
 renderHabits();
 moodTagFilter.addEventListener("change", renderMoodHistory);
 moodScoreFilter.addEventListener("change", renderMoodHistory);
